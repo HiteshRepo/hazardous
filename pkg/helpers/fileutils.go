@@ -10,6 +10,7 @@ func IsAllowedExtension(filename string, allowedExts []string) bool {
 	}
 	return false
 }
+
 func IsExcludedDir(path string, excludedDirs []string) bool {
 	for _, exclude := range excludedDirs {
 		if strings.Contains(path, exclude) {
