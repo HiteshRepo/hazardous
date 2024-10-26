@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	"github.com/alcionai/clues"
-	"github.com/hiteshrepo/hazardous/pkg/helpers"
-
 	"golang.org/x/tools/go/analysis"
 	"mvdan.cc/sh/syntax"
+
+	"github.com/hiteshrepo/hazardous/pkg/helpers"
 )
 
 var unsafeArgPaths = map[string]any{
@@ -40,7 +40,6 @@ func TraverseAndHandleFile(basePath string, exts, excluded []string) {
 
 		return nil
 	})
-
 	if err != nil {
 		log.Fatalf("error walking the path %q: %v\n", basePath, err)
 	}
