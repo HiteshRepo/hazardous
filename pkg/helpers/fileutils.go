@@ -1,6 +1,9 @@
 package helpers
 
-import "strings"
+import (
+	"path/filepath"
+	"strings"
+)
 
 func IsAllowedExtension(filename string, allowedExts []string) bool {
 	for _, ext := range allowedExts {
@@ -8,13 +11,22 @@ func IsAllowedExtension(filename string, allowedExts []string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
-func IsExcludedDir(path string, excludedDirs []string) bool {
+func IsExcludedDir(pth string, excludedDirs []string) bool {
+	normalizedPath := filepath.Clean(pth)
+	pathComponents := strings.Split(normalizedPath, string(filepath.Separator))
+
 	for _, exclude := range excludedDirs {
-		if strings.Contains(path, exclude) {
-			return true
+		excludePath := filepath.Clean(exclude)
+		excludeComponents := strings.Split(excludePath, string(filepath.Separator))
+
+		for _, component := range pathComponents {
+			if component == excludeComponents[0] {
+				return true
+			}
 		}
 	}
 
