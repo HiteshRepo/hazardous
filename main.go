@@ -4,64 +4,114 @@ import (
 	"flag"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/hiteshrepo/hazardous/pkg/hazardous"
+	"github.com/hiteshrepo/hazardous/pkg/helpers"
+	"github.com/hiteshrepo/hazardous/pkg/issue"
+
+	"mvdan.cc/sh/syntax"
 )
 
-var (
-	excludeDirs       string
-	allowedExtensions string
-)
+type Config struct {
+	allowedExtensions []string
+	excludeDirs       []string
+}
 
 func main() {
-	flag.StringVar(&allowedExtensions, "allow-extensions", "", "Comma-separated list of allowed file extensions")
-	flag.StringVar(&excludeDirs, "exclude-dirs", "", "Comma-separated list of directories to exclude")
+	extensions := flag.String("allow-extensions", ".sh,Makefile", "Comma-separated list of allowed file extensions")
+	excludes := flag.String("exclude-dirs", "node_modules,linters", "Comma-separated list of directories to exclude")
 	flag.Parse()
 
-	exts := strings.Split(allowedExtensions, ",")
-	excluded := strings.Split(excludeDirs, ",")
+	config := Config{
+		allowedExtensions: strings.Split(*extensions, ","),
+		excludeDirs:       strings.Split(*excludes, ","),
+	}
 
 	args := flag.Args()
-	if len(args) == 0 {
-		log.Fatal("please provide a path or path-pattern (e.g., ./..., ./*, dir/*, dir/file.sh)")
-		return
+	if len(args) < 1 {
+		log.Fatal("Please provide a path to scan")
 	}
 
-	if len(args) == 1 && !strings.HasSuffix(args[0], "...") {
-		log.Fatal("only path or path-pattern is expected (e.g., ./..., ./*, dir/*, dir/file.sh)")
-		return
-	}
-
-	if len(args) == 1 && strings.HasSuffix(args[0], "...") {
-		hazardous.HandleRecursive(args[0], exts, excluded)
-		return
-	}
-
-	if len(args) == 1 && strings.HasSuffix(args[0], "*") {
-		hazardous.HandleGlob(args[0], exts, excluded)
-		return
-	}
-
-	if len(args) == 1 {
-		fInfo, err := os.Stat(args[0])
+	targetPath := args[0]
+	if targetPath == "./..." {
+		err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() && shouldScanFile(path, config) {
+				scanFile(path)
+			}
+			return nil
+		})
 		if err != nil {
-			log.Fatalf("error checking file or directory: %v", err)
-			return
+			log.Fatal(err)
 		}
-
-		if fInfo.IsDir() {
-			hazardous.TraverseAndHandleFile(fInfo.Name(), exts, excluded)
-		} else {
-			hazardous.HandleFile(fInfo.Name(), exts)
+	} else {
+		if shouldScanFile(targetPath, config) {
+			scanFile(targetPath)
 		}
 	}
+}
 
-	if len(args) > 1 {
-		for _, dir := range args {
-			hazardous.HandleRecursive(dir, exts, excluded)
-		}
+func shouldScanFile(targetPath string, config Config) bool {
+	return helpers.IsAllowedExtension(targetPath, config.allowedExtensions) &&
+		!helpers.IsExcludedDir(targetPath, config.excludeDirs)
+}
 
+func scanFile(filepath string) {
+	content, err := os.ReadFile(filepath)
+	if err != nil {
+		log.Printf("Error reading file %s: %v", filepath, err)
 		return
 	}
+
+	if strings.HasSuffix(filepath, "Makefile") {
+		scanMakefile(string(content), filepath)
+	} else {
+		issues := scanShellScript(string(content), filepath)
+		issue.ReportIssues(issues)
+	}
+}
+
+func scanShellScript(content, filepath string) []issue.Issue {
+	reader := strings.NewReader(content)
+	file, err := syntax.NewParser().Parse(reader, filepath)
+	if err != nil {
+		log.Printf("Error parsing file %s: %v", filepath, err)
+		return nil
+	}
+
+	var issues []issue.Issue
+	syntax.Walk(file, func(node syntax.Node) bool {
+		if cmd, ok := node.(*syntax.CallExpr); ok {
+			if issue := hazardous.CheckHazardousCommand(cmd, filepath); issue != nil {
+				issues = append(issues, *issue)
+			}
+		}
+
+		return true
+	})
+
+	return issues
+}
+
+func scanMakefile(content, filepath string) []issue.Issue {
+	var issues []issue.Issue
+	lines := strings.Split(content, "\n")
+
+	for i, line := range lines {
+		flag, col := hazardous.CheckHazardousLine(line, "rm")
+		if len(flag) > 0 {
+			issues = append(issues, issue.Issue{
+				Filepath: filepath,
+				Line:     uint(i + 1),
+				Col:      col,
+				Command:  "rm " + flag,
+			})
+		}
+	}
+
+	return issues
 }

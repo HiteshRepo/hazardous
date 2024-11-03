@@ -1,0 +1,15 @@
+-- dangerous_script.sh --
+rm -rf /
+
+OUT_DIR := ""
+rm -rf $OUT_DIR/*
+
+rm -rf "/"
+
+rm -rf $OUT_DIR/*
+
+OUT_DIR := ""
+rm -rf ${OUT_DIR}/*
+
+OUT_DIR := ""
+rm -rf $(OUT_DIR)/*

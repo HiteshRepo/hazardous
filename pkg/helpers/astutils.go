@@ -10,6 +10,11 @@ import (
 
 var assignmentOperators = map[string]any{
 	":=": nil,
+	"=":  nil,
+	"+=": nil,
+	"-=": nil,
+	"*=": nil,
+	"/=": nil,
 }
 
 // TrackVariableAssignments traverses the given AST node and identifies variable assignments.
@@ -24,35 +29,81 @@ var assignmentOperators = map[string]any{
 func TrackVariableAssignments(node ast.Node) map[string]string {
 	varMap := make(map[string]string)
 
-	if node == nil {
+	fileNode, ok := node.(*ast.File)
+	if !ok || fileNode == nil {
 		return varMap
 	}
 
-	ast.Inspect(node, func(n ast.Node) bool {
+	ast.Inspect(fileNode, func(n ast.Node) bool {
 		switch stmt := n.(type) {
 		case *ast.AssignStmt:
-			for _, lhs := range stmt.Lhs {
-				if ident, ok := lhs.(*ast.Ident); ok {
-					if len(stmt.Rhs) > 0 {
-						if rhsLit, ok := stmt.Rhs[0].(*ast.BasicLit); ok {
-							varMap[ident.Name] = strings.Trim(rhsLit.Value, "\"")
+			if len(stmt.Lhs) == len(stmt.Rhs) {
+				for i, lhs := range stmt.Lhs {
+					lhsIdent, lhsOk := lhs.(*ast.Ident)
+					if !lhsOk {
+						continue
+					}
+
+					switch rhs := stmt.Rhs[i].(type) {
+					case *ast.BasicLit:
+						varMap[lhsIdent.Name] = strings.Trim(rhs.Value, "\"")
+
+					case *ast.Ident:
+						varMap[lhsIdent.Name] = rhs.Name
+
+					case *ast.CallExpr:
+						if funIdent, ok := rhs.Fun.(*ast.Ident); ok {
+							var args []string
+							for _, arg := range rhs.Args {
+								switch arg := arg.(type) {
+								case *ast.BasicLit:
+									args = append(args, arg.Value)
+								case *ast.Ident:
+									args = append(args, arg.Name)
+								default:
+									args = append(args, "_")
+								}
+							}
+
+							paramStr := "(" + strings.Join(args, ", ") + ")"
+							varMap[lhsIdent.Name] = funIdent.Name + paramStr
 						}
 					}
 				}
 			}
 
-		// case *ast.BlockStmt:
-		// 	for _, stmt := range stmt.List {
-		// 		return trackVariableAssignments(stmt)
-		// 	}
+		case *ast.ValueSpec:
+			for i, name := range stmt.Names {
+				if i < len(stmt.Values) {
+					switch rhs := stmt.Values[i].(type) {
+					case *ast.BasicLit:
+						varMap[name.Name] = strings.Trim(rhs.Value, "\"")
+					case *ast.Ident:
+						varMap[name.Name] = rhs.Name
+					case *ast.CallExpr:
+						if funIdent, ok := rhs.Fun.(*ast.Ident); ok {
+							var args []string
+							for _, arg := range rhs.Args {
+								switch arg := arg.(type) {
+								case *ast.BasicLit:
+									args = append(args, arg.Value)
+								case *ast.Ident:
+									args = append(args, arg.Name)
 
-		// case *ast.ExprStmt:
-		// 	call, ok := stmt.X.(*ast.CallExpr)
-		// 	if !ok {
-		// 		return false
-		// 	}
+								default:
+									args = append(args, "_")
+								}
+							}
 
-		// 	return trackVariableAssignments(call)
+							paramStr := "(" + strings.Join(args, ", ") + ")"
+							varMap[name.Name] = funIdent.Name + paramStr
+						}
+					}
+				} else {
+					// Uninitialized variables
+					varMap[name.Name] = ""
+				}
+			}
 
 		case *ast.CallExpr:
 			funIdent, ok := stmt.Fun.(*ast.Ident)
@@ -77,6 +128,8 @@ func TrackVariableAssignments(node ast.Node) map[string]string {
 					break
 				}
 			}
+
+			return true
 		}
 
 		return true
@@ -112,6 +165,17 @@ func ConvertSyntaxNodeToAstFile(node syntax.Node) *ast.File {
 			List: []ast.Stmt{},
 		},
 	}
+
+	// case *syntax.Assign:
+	// 	for _, lhs := range stmt.Lhs {
+	// 		if ident, ok := lhs.(*ast.Ident); ok {
+	// 			if len(stmt.Rhs) > 0 {
+	// 				if rhsLit, ok := stmt.Rhs[0].(*ast.BasicLit); ok {
+	// 					varMap[ident.Name] = strings.Trim(rhsLit.Value, "\"")
+	// 				}
+	// 			}
+	// 		}
+	// 	}
 
 	syntax.Walk(node, func(n syntax.Node) bool {
 		switch cmd := n.(type) {
@@ -156,6 +220,51 @@ func ConvertSyntaxNodeToAstFile(node syntax.Node) *ast.File {
 						funcDecl.Body.List = append(funcDecl.Body.List, exprStmt)
 					}
 				}
+			}
+
+			if len(cmd.Assigns) > 0 {
+				varNameWord := cmd.Assigns[0]
+
+				goCall := &ast.CallExpr{
+					Fun: ast.NewIdent(varNameWord.Name.Value),
+				}
+
+				valueWord := varNameWord.Value
+				valueWordStr := ""
+
+				for _, vp := range valueWord.Parts {
+					switch v := vp.(type) {
+					case *syntax.Lit:
+						valueWordStr = v.Value
+
+					case *syntax.DblQuoted:
+						quotedVal := ""
+						for _, part := range v.Parts {
+							if lit, ok := part.(*syntax.Lit); ok {
+								quotedVal += lit.Value
+							}
+						}
+
+						valueWordStr = quotedVal
+
+					case *syntax.ParamExp:
+						valueWordStr = fmt.Sprintf("${%s}", v.Param.Value)
+					}
+
+					goCall.Args = append(goCall.Args, ast.NewIdent(valueWordStr))
+				}
+
+				if len(goCall.Args) == 1 {
+					last := goCall.Args[0]
+
+					assignOp := ast.NewIdent("=")
+					goCall.Args[0] = assignOp
+
+					goCall.Args = append(goCall.Args, last)
+				}
+
+				exprStmt := &ast.ExprStmt{X: goCall}
+				funcDecl.Body.List = append(funcDecl.Body.List, exprStmt)
 			}
 		}
 
