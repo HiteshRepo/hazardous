@@ -20,6 +20,10 @@ type Config struct {
 }
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	extensions := flag.String("allow-extensions", ".sh,Makefile", "Comma-separated list of allowed file extensions")
 	excludes := flag.String("exclude-dirs", "node_modules,linters", "Comma-separated list of directories to exclude")
 	flag.Parse()
@@ -34,14 +38,16 @@ func main() {
 		log.Fatal("Please provide a path to scan")
 	}
 
+	var allIssues []issue.Issue
 	targetPath := args[0]
+
 	if targetPath == "./..." {
 		err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return err
 			}
 			if !info.IsDir() && shouldScanFile(path, config) {
-				scanFile(path)
+				allIssues = append(allIssues, scanFile(path)...)
 			}
 			return nil
 		})
@@ -50,9 +56,15 @@ func main() {
 		}
 	} else {
 		if shouldScanFile(targetPath, config) {
-			scanFile(targetPath)
+			allIssues = scanFile(targetPath)
 		}
 	}
+
+	issue.ReportIssues(allIssues)
+	if len(allIssues) > 0 {
+		return 1
+	}
+	return 0
 }
 
 func shouldScanFile(targetPath string, config Config) bool {
@@ -60,19 +72,17 @@ func shouldScanFile(targetPath string, config Config) bool {
 		!helpers.IsExcludedDir(targetPath, config.excludeDirs)
 }
 
-func scanFile(filepath string) {
+func scanFile(filepath string) []issue.Issue {
 	content, err := os.ReadFile(filepath)
 	if err != nil {
 		log.Printf("Error reading file %s: %v", filepath, err)
-		return
+		return nil
 	}
 
 	if strings.HasSuffix(filepath, "Makefile") {
-		scanMakefile(string(content), filepath)
-	} else {
-		issues := scanShellScript(string(content), filepath)
-		issue.ReportIssues(issues)
+		return scanMakefile(string(content), filepath)
 	}
+	return scanShellScript(string(content), filepath)
 }
 
 func scanShellScript(content, filepath string) []issue.Issue {
@@ -85,12 +95,16 @@ func scanShellScript(content, filepath string) []issue.Issue {
 
 	var issues []issue.Issue
 	syntax.Walk(file, func(node syntax.Node) bool {
-		if cmd, ok := node.(*syntax.CallExpr); ok {
-			if issue := hazardous.CheckHazardousCommand(cmd, filepath); issue != nil {
-				issues = append(issues, *issue)
+		switch n := node.(type) {
+		case *syntax.CallExpr:
+			if iss := hazardous.CheckHazardousCommand(n, filepath); iss != nil {
+				issues = append(issues, *iss)
+			}
+		case *syntax.BinaryCmd:
+			if iss := hazardous.CheckHazardousPipe(n, filepath); iss != nil {
+				issues = append(issues, *iss)
 			}
 		}
-
 		return true
 	})
 
@@ -102,15 +116,8 @@ func scanMakefile(content, filepath string) []issue.Issue {
 	lines := strings.Split(content, "\n")
 
 	for i, line := range lines {
-		flag, col := hazardous.CheckHazardousLine(line, "rm")
-		if len(flag) > 0 {
-			issues = append(issues, issue.Issue{
-				Filepath: filepath,
-				Line:     uint(i + 1),
-				Col:      col,
-				Command:  "rm " + flag,
-			})
-		}
+		lineIssues := hazardous.CheckMakefileLine(line, filepath, uint(i+1))
+		issues = append(issues, lineIssues...)
 	}
 
 	return issues

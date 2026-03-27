@@ -1,3 +1,5 @@
+exec hazardous Makefile
+
 -- Makefile --
 all:
-    ls -l
+	ls -l

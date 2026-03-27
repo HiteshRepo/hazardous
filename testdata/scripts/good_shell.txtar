@@ -1,2 +1,4 @@
+exec hazardous safe_script.sh
+
 -- safe_script.sh --
 ls -l

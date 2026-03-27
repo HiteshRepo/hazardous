@@ -1,15 +1,10 @@
+! exec hazardous dangerous_script.sh
+stderr 'unsafe code found'
+
 -- dangerous_script.sh --
+#!/bin/bash
 rm -rf /
-
-OUT_DIR := ""
-rm -rf $OUT_DIR/*
-
+rm -rf "$OUT_DIR"/*
 rm -rf "/"
-
-rm -rf $OUT_DIR/*
-
-OUT_DIR := ""
-rm -rf ${OUT_DIR}/*
-
-OUT_DIR := ""
-rm -rf $(OUT_DIR)/*
+rm -rf "${OUT_DIR}"/*
+rm -rf "$(OUT_DIR)"/*

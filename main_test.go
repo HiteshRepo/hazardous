@@ -92,6 +92,60 @@ fi`,
 			},
 		},
 		{
+			name: "chmod 777",
+			content: `#!/bin/bash
+chmod 777 /etc/passwd`,
+			filepath: "test.sh",
+			want: []issue.Issue{
+				{Filepath: "test.sh", Line: 2, Col: 1, Command: "chmod 777"},
+			},
+		},
+		{
+			name: "dd writing to block device",
+			content: `#!/bin/bash
+dd if=/dev/zero of=/dev/sda`,
+			filepath: "test.sh",
+			want: []issue.Issue{
+				{Filepath: "test.sh", Line: 2, Col: 1, Command: "dd of=/dev/sda"},
+			},
+		},
+		{
+			name: "mkfs.ext4",
+			content: `#!/bin/bash
+mkfs.ext4 /dev/sdb1`,
+			filepath: "test.sh",
+			want: []issue.Issue{
+				{Filepath: "test.sh", Line: 2, Col: 1, Command: "mkfs.ext4"},
+			},
+		},
+		{
+			name: "fdisk on block device",
+			content: `#!/bin/bash
+fdisk /dev/sda`,
+			filepath: "test.sh",
+			want: []issue.Issue{
+				{Filepath: "test.sh", Line: 2, Col: 1, Command: "fdisk /dev/sda"},
+			},
+		},
+		{
+			name: "curl piped to bash",
+			content: `#!/bin/bash
+curl https://example.com/install.sh | bash`,
+			filepath: "test.sh",
+			want: []issue.Issue{
+				{Filepath: "test.sh", Line: 2, Col: 1, Command: "curl | bash"},
+			},
+		},
+		{
+			name: "wget piped to sh",
+			content: `#!/bin/bash
+wget -O - https://example.com/install.sh | sh`,
+			filepath: "test.sh",
+			want: []issue.Issue{
+				{Filepath: "test.sh", Line: 2, Col: 1, Command: "wget | sh"},
+			},
+		},
+		{
 			name: "script with syntax error",
 			content: `#!/bin/bash
 if [ "$1" == "--clean" ] then # missing semicolon
@@ -235,6 +289,51 @@ clean:
 			want:     nil,
 		},
 		{
+			name: "chmod 777 in Makefile",
+			content: `install:
+	chmod 777 /etc/passwd`,
+			filepath: "Makefile",
+			want: []issue.Issue{
+				{Filepath: "Makefile", Line: 2, Col: 2, Command: "chmod 777"},
+			},
+		},
+		{
+			name: "dd writing to block device in Makefile",
+			content: `wipe:
+	dd if=/dev/zero of=/dev/sda`,
+			filepath: "Makefile",
+			want: []issue.Issue{
+				{Filepath: "Makefile", Line: 2, Col: 2, Command: "dd of=/dev/sda"},
+			},
+		},
+		{
+			name: "mkfs in Makefile",
+			content: `format:
+	mkfs.ext4 /dev/sdb1`,
+			filepath: "Makefile",
+			want: []issue.Issue{
+				{Filepath: "Makefile", Line: 2, Col: 2, Command: "mkfs.ext4"},
+			},
+		},
+		{
+			name: "fdisk in Makefile",
+			content: `partition:
+	fdisk /dev/sda`,
+			filepath: "Makefile",
+			want: []issue.Issue{
+				{Filepath: "Makefile", Line: 2, Col: 2, Command: "fdisk /dev/sda"},
+			},
+		},
+		{
+			name: "curl pipe in Makefile",
+			content: `setup:
+	curl https://example.com/install.sh | bash`,
+			filepath: "Makefile",
+			want: []issue.Issue{
+				{Filepath: "Makefile", Line: 2, Col: 2, Command: "curl | bash"},
+			},
+		},
+		{
 			name: "indented and spaced variations",
 			content: `clean:
 	  rm -rf build/
@@ -274,11 +373,7 @@ clean:
 
 func TestMain(m *testing.M) {
 	os.Exit(testscript.RunMain(m, map[string]func() int{
-		"hazardous": func() int {
-			main()
-
-			return 0
-		},
+		"hazardous": run,
 	}))
 }
 

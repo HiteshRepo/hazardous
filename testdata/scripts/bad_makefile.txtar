@@ -1,10 +1,8 @@
+! exec hazardous Makefile
+stderr 'unsafe code found'
+
 -- Makefile --
 clean:
-    rm -rf /
-
-OUT_DIR := ""
-clean: 
+	rm -rf /
 	rm -rf ${OUT_DIR}/*
-
-clean: 
 	rm -rf ${OUT_DIR}/*
